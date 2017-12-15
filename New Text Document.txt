@@ -1,0 +1,107 @@
+`define CHIP_TOP  shxsim.shxbrd.u77965hrcarm3n000
+`define CPG_STATE `CHIP_TOP.top.top_nonfb.cpg.cl_stateq[9:0]
+`define MODULE  `CHIP_TOP.pere.pere_c4.rds
+`define INT_SIG  `MODULE.intreq_rds_p
+`define INT_CNT_SIG  `CHIP_TOP.rt.rt_c4.inttp.irqs[299]
+
+module assert_chk;
+
+integer file;
+reg cpu_on;
+
+initial begin
+  file = $fopen("result_post.dat");
+  cpu_on = 1'b0;
+end
+
+initial begin
+  wait (`CPG_STATE == 10'h030);
+  $fdisplay(file,"CPG state is: 10'h%h", `CPG_STATE);
+  cpu_on = 1'b1;
+end
+
+always @(posedge shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.inttp.clk) begin
+  if (cpu_on == 1'b1) begin
+    if ($rose(`INT_CNT_SIG)) begin
+      $fdisplay(file,"Interrupt request on at: %d ns", $time);
+    end
+  end
+end
+
+always @(posedge shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.inttp.clk) begin
+  if (cpu_on == 1'b1) begin
+    if(~$stable(shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.intsh.in_intevtlfi_cp_p[8:0])) begin
+      $fdisplay(file,"Event code is 9'h%h at %d ns", shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.intsh.in_intevtlfi_cp_p[8:0], $time);
+    end
+  end
+end
+
+always @(negedge shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.inttp.clk) begin
+  if (cpu_on == 1'b1) begin
+    if ($fell(`INT_CNT_SIG)) begin
+      $fdisplay(file,"Interrupt release at: %d ns", $time);
+    end
+  end
+end
+
+always @(negedge shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.inttp.clk) begin
+  if (cpu_on == 1'b1) begin
+    if ($rose(shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.intsh.cp_intack_in_p)) begin
+      $fdisplay(file,"CPU ack assert at: %d ns", $time);
+    end
+  end
+end
+
+always @(negedge shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.inttp.clk) begin
+  if (cpu_on == 1'b1) begin
+    if ($fell(shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.intsh.cp_intack_in_p)) begin
+      $fdisplay(file,"CPU ack de-assert at: %d ns", $time);
+    end
+  end
+end
+
+bind shxsim chk_item_01 No1(
+  .inttp_clk            (shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.inttp.clk),
+  .intreq_module        (`INT_SIG),
+  .intreq_intctrl       (`INT_CNT_SIG),
+  .event_code           (shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.intsh.in_intevtlfi_cp_p[8:0]),
+  .intlvllfi            (shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.intsh.in_intlvllfi_cp_p[3:0]),
+  .cpu_ack              (shxsim.shxbrd.u77965hrcarm3n000.rt.rt_c4.intsh.cp_intack_in_p)
+);
+
+
+endmodule
+
+module chk_item_01 (
+  inttp_clk,
+  intreq_module,
+  intreq_intctrl,
+  event_code,
+  intlvllfi,
+  cpu_ack
+);
+  input inttp_clk;
+  input intreq_module;
+  input intreq_intctrl;
+  input [8:0]event_code;
+  input [3:0]intlvllfi;
+  input cpu_ack;
+
+  reg [8:0] EVENT_CODE;
+
+//  assign EVENT_CODE = 9'h028;
+  assign EVENT_CODE = 9'h128;
+
+property INT_CHK ;
+  @(posedge inttp_clk) disable iff(~(intreq_module && intreq_intctrl)) (intreq_module && intreq_intctrl)[*1:100] ##1
+                                                                       (event_code == EVENT_CODE && intlvllfi == 4'hf)[*1:$] ##1
+                                                                       cpu_ack;
+endproperty
+
+
+assert_INT_CHK: 
+               assert property (INT_CHK)
+               else
+               $display ("@%0dns INT Check NG : intreq_module: %b : intreq_intctrl: %b : event_code: %h : intlvllfi: %h ", $time, intreq_module, intreq_intctrl, event_code, intlvllfi);
+
+endmodule
